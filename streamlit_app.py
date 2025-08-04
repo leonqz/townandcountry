@@ -198,7 +198,7 @@ promo_periods['start_date'] = pd.to_datetime(promo_periods['promo_start'])
 promo_periods['end_date'] = pd.to_datetime(promo_periods['promo_end'])
 
 # 2️⃣ UI Title
-st.title("Units Sold Over Time with Promotions")
+st.title("Item level recommendations")
 
 # 3️⃣ Item selector
 selected_item = st.selectbox("Select an item", sorted(sales_df['Long_Desc'].dropna().unique()))
