@@ -62,6 +62,54 @@ st.title("Item Profit vs Lift Analysis")
 min_promos = st.slider("Minimum # of Promotions", 1, int(upc_summary['promo_count'].max()), 1)
 filtered_df = upc_summary[upc_summary['promo_count'] >= min_promos]
 
+# Function to classify items for highlight
+def classify_item(lift, profit_diff):
+    if lift >= 1.2 and profit_diff > 0:
+        return "⭐ Star"
+    elif lift < 1.2 and profit_diff < 0:
+        return "⚠ Risk"
+    elif lift >= 1.2 and profit_diff < 0:
+        return "📉 High Lift but Inefficient"
+    else:
+        return "💡 Efficient but Low Lift"
+
+# Create highlight items from filtered_df
+highlight_items = []
+if not filtered_df.empty:
+    # Pick top 2 stars and top 2 risks (if available)
+    stars = filtered_df[(filtered_df["avg_lift"] >= 1.2) & (filtered_df["avg_profit"] > 0)].nlargest(2, "avg_profit")
+    risks = filtered_df[(filtered_df["avg_lift"] < 1.2) & (filtered_df["avg_profit"] < 0)].nsmallest(2, "avg_profit")
+
+    highlight_items = pd.concat([stars, risks]).to_dict("records")
+
+# Display highlight section
+if highlight_items:
+    st.markdown("### 🔍 Highlighted Items")
+    for item in highlight_items:
+        classification = classify_item(item["avg_lift"], item["avg_profit"])
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #111;
+                padding: 8px;
+                border-radius: 6px;
+                border: 1px solid #333;
+                margin-bottom: 6px;
+            ">
+                <strong style="color: white;">{classification}</strong>
+                <span style="color: #ccc;"> — {item['item_name']} | Lift: {item['avg_lift']:.1f}x | Profit Diff: ${item['avg_profit']:,.2f}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+
+
+
+
+
+
 # Calculate axis domains
 x_min, x_max = filtered_df['avg_profit'].min(), filtered_df['avg_profit'].max()
 y_min, y_max = filtered_df['avg_lift'].min(), filtered_df['avg_lift'].max()
@@ -76,13 +124,43 @@ scatter = alt.Chart(filtered_df).mark_circle(size=100, opacity=0.75).encode(
 )
 
 
-# Quadrant labels
+
+# Padding for inside alignment
+padding_x = (x_max - x_min) * 0.05
+padding_y = (y_max - y_min) * 0.05
+
 quadrant_labels = pd.DataFrame([
-    {"x": x_max, "y": y_max, "label": "⭐ Star", "recommendation": "Maintain pricing & replicate success"},
-    {"x": x_min, "y": y_min, "label": "⚠ Risk", "recommendation": "Review pricing or discontinue"},
-    {"x": x_min, "y": y_max, "label": "High Lift but Inefficient", "recommendation": "Optimize cost or price"},
-    {"x": x_max, "y": y_min, "label": "Efficient but Low Lift", "recommendation": "Consider targeted promotions"},
+    {"x": x_max - padding_x, "y": y_max - padding_y, "label": "⭐ Star", "recommendation": "Maintain pricing & replicate success"},
+    {"x": x_min + padding_x, "y": y_min + padding_y, "label": "⚠ Risk", "recommendation": "Review pricing or discontinue"},
+    {"x": x_min + padding_x, "y": y_max - padding_y, "label": "High Lift but Inefficient", "recommendation": "Optimize cost or price"},
+    {"x": x_max - padding_x, "y": y_min + padding_y, "label": "Efficient but Low Lift", "recommendation": "Consider targeted promotions"},
 ])
+
+# Label text
+label_text = alt.Chart(quadrant_labels).mark_text(
+    fontSize=16,
+    fontWeight="bold",
+    color="white",
+    align="center"  # fixed alignment (you can change to 'left' or 'right' if needed)
+).encode(
+    x="x:Q",
+    y="y:Q",
+    text="label:N"
+)
+
+# Recommendation text
+recommendation_text = alt.Chart(quadrant_labels).mark_text(
+    fontSize=12,
+    color="lightgray",
+    dy=14,
+    align="center"
+).encode(
+    x="x:Q",
+    y="y:Q",
+    text="recommendation:N"
+)
+
+
 
 # Background boxes for labels
 label_bg = alt.Chart(quadrant_labels).mark_rect(
@@ -94,35 +172,6 @@ label_bg = alt.Chart(quadrant_labels).mark_rect(
     x2=alt.X2("x:Q"),
     y2=alt.Y2("y:Q")
 ).properties(width=200, height=40)  # approximate size of background box
-
-# Label text (on top of the background box)
-label_text = alt.Chart(quadrant_labels).mark_text(
-    align="left",
-    baseline="bottom",
-    fontSize=16,
-    fontWeight="bold",
-    color="white",
-    dx=5,  # padding inside background box
-    dy=-2
-).encode(
-    x="x:Q",
-    y="y:Q",
-    text="label:N"
-)
-
-# Recommendation text (below label text)
-recommendation_text = alt.Chart(quadrant_labels).mark_text(
-    align="left",
-    baseline="top",
-    fontSize=12,
-    color="lightgray",
-    dx=5,
-    dy=14
-).encode(
-    x="x:Q",
-    y="y:Q",
-    text="recommendation:N"
-)
 
 # Crosshair lines
 mid_x = (x_min + x_max) / 2
@@ -183,7 +232,61 @@ if not item_promos.empty:
     # Filter and reorder
     item_promos_display = item_promos[[col for col in required_columns if col in item_promos.columns]].copy()
 
-    # Format numeric columns (keep numeric for styling)
+
+
+
+
+def classify_overall_recommendation(df):
+    """Generate a single recommendation line for an item based on its most recent promo period."""
+    if df.empty:
+        return None, "No promotions found for this item."
+
+    # Use the most recent promotion period
+    latest_promo = df.sort_values("promo_start").iloc[-1]
+
+    lift = latest_promo["lift"]
+    profit_diff = latest_promo["profit_difference"]
+
+    if lift >= 1.2 and profit_diff > 0:
+        return "⭐ Star", f"This item shows strong performance with {lift:.1f}x lift and a profit gain of ${profit_diff:,.2f}. Keep promoting and consider increasing support."
+    elif lift < 1.2 and profit_diff < 0:
+        return "⚠ Risk", f"Low lift ({lift:.1f}x) and a profit loss of ${profit_diff:,.2f}. Consider discontinuing promotions."
+    elif lift >= 1.2 and profit_diff < 0:
+        return "📉 High Lift but Inefficient", f"{lift:.1f}x lift but costs ${profit_diff:,.2f} in profit. Consider reducing discount depth or adjusting price."
+    else:
+        return "💡 Efficient but Low Lift", f"${profit_diff:,.2f} profit gain but only {lift:.1f}x lift. Consider targeted campaigns to improve sales."
+
+
+# --- Display Recommendation with Highlight ---
+if not item_promos.empty:
+    title, text = classify_overall_recommendation(item_promos)
+
+    if title:
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #222;
+                padding: 15px;
+                border-radius: 10px;
+                border: 1px solid #444;
+                margin-bottom: 15px;
+            ">
+                <h3 style="color: white; margin-bottom: 5px;">{title}</h3>
+                <p style="color: #ccc; margin: 0;">{text}</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # Display table
+    required_columns = [
+        "upc", "Long_Desc", "sale_period", "promo_start", "promo_end", 
+        "promo_length", "promo_revenue", "preceding_non_promo_revenue", 
+        "lift", "promo_profit", "preceding_non_promo_profit", "profit_difference"
+    ]
+
+    item_promos_display = item_promos[required_columns].copy()
+
     currency_columns = [
         "promo_revenue",
         "preceding_non_promo_revenue",
@@ -191,20 +294,11 @@ if not item_promos.empty:
         "preceding_non_promo_profit",
         "profit_difference"
     ]
-
     for col in currency_columns:
-        if col in item_promos_display.columns:
-            item_promos_display[col] = item_promos_display[col].astype(float)
+        item_promos_display[col] = item_promos_display[col].astype(float)
 
-    if "lift" in item_promos_display.columns:
-        item_promos_display["lift"] = item_promos_display["lift"].astype(float)
+    item_promos_display["lift"] = item_promos_display["lift"].astype(float)
 
-    # Define styling function for profit_difference
-    def highlight_profit(val):
-        color = "red" if val < 0 else "green"
-        return f"color: {color}; font-weight: bold"
-
-    # Apply styling
     styled_df = (
         item_promos_display.style
         .format({
@@ -215,12 +309,22 @@ if not item_promos.empty:
             "profit_difference": "${:,.2f}",
             "lift": "{:.1f}x"
         })
-        .applymap(highlight_profit, subset=["profit_difference"])
     )
 
     st.dataframe(styled_df)
 else:
     st.write("No promotions found for this item.")
+
+
+
+
+
+
+
+
+
+
+
 
 
 # 5️⃣ Units sold chart
