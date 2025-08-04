@@ -5,10 +5,9 @@ import altair as alt
 # 1️⃣ Load data
 promo_periods = pd.read_csv("data/promo_period.csv")
 
-
 # Set page config
 st.set_page_config(
-    page_title="Town & Country Markets Promo Dashboard",
+    page_title="BetterBasket Promo Dashboard",
     page_icon="town-and-country-markets.webp",
     layout="wide"
 )
@@ -132,11 +131,17 @@ mid_y = (y_min + y_max) / 2
 vertical_line = alt.Chart(pd.DataFrame({'x': [mid_x]})).mark_rule(color="gray", strokeDash=[5, 5], opacity=0.5).encode(x='x:Q')
 horizontal_line = alt.Chart(pd.DataFrame({'y': [mid_y]})).mark_rule(color="gray", strokeDash=[5, 5], opacity=0.5).encode(y='y:Q')
 
-# Final chart
-final_chart = scatter + label_bg + label_text + recommendation_text + vertical_line + horizontal_line
+# Final chart (set explicit width and height)
+final_chart = (scatter + label_bg + label_text + recommendation_text + vertical_line + horizontal_line).properties(
+    width="container",
+    height=500  # <-- Explicit height fixes the squashed issue
+)
 
 st.altair_chart(final_chart, use_container_width=True)
+
+
 sales_df = pd.read_csv("data/skinny_sales_data.csv")
+
 
 # Convert date fields
 sales_df['SaleDate'] = pd.to_datetime(sales_df['SaleDate'])
@@ -157,10 +162,66 @@ item_promos = promo_periods[promo_periods['Long_Desc'] == selected_item].copy()
 
 # 4️⃣ Display promo table
 st.subheader("Promotion Periods with Metrics")
+
+# Required columns in order
+required_columns = [
+    "upc",
+    "Long_Desc",
+    "sale_period",
+    "promo_start",
+    "promo_end",
+    "promo_length",
+    "promo_revenue",
+    "preceding_non_promo_revenue",
+    "lift",
+    "promo_profit",
+    "preceding_non_promo_profit",
+    "profit_difference"
+]
+
 if not item_promos.empty:
-    st.dataframe(item_promos)
+    # Filter and reorder
+    item_promos_display = item_promos[[col for col in required_columns if col in item_promos.columns]].copy()
+
+    # Format numeric columns (keep numeric for styling)
+    currency_columns = [
+        "promo_revenue",
+        "preceding_non_promo_revenue",
+        "promo_profit",
+        "preceding_non_promo_profit",
+        "profit_difference"
+    ]
+
+    for col in currency_columns:
+        if col in item_promos_display.columns:
+            item_promos_display[col] = item_promos_display[col].astype(float)
+
+    if "lift" in item_promos_display.columns:
+        item_promos_display["lift"] = item_promos_display["lift"].astype(float)
+
+    # Define styling function for profit_difference
+    def highlight_profit(val):
+        color = "red" if val < 0 else "green"
+        return f"color: {color}; font-weight: bold"
+
+    # Apply styling
+    styled_df = (
+        item_promos_display.style
+        .format({
+            "promo_revenue": "${:,.2f}",
+            "preceding_non_promo_revenue": "${:,.2f}",
+            "promo_profit": "${:,.2f}",
+            "preceding_non_promo_profit": "${:,.2f}",
+            "profit_difference": "${:,.2f}",
+            "lift": "{:.1f}x"
+        })
+        .applymap(highlight_profit, subset=["profit_difference"])
+    )
+
+    st.dataframe(styled_df)
 else:
     st.write("No promotions found for this item.")
+
 
 # 5️⃣ Units sold chart
 units_chart = alt.Chart(item_sales).mark_line(point=True).encode(
